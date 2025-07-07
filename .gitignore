@@ -2,6 +2,14 @@ data/
 render_outputoutput/
 ssynth-release-main/
 mel_model.pth
+diverse_processed/
+ssynth_processed/
+pad_ufes_20_processed/
+scin_processed/
+mra-midas_processed/
+mskcc_processed/
+fp17k_processed/
+experiments/
 
 # Created by https://www.toptal.com/developers/gitignore/api/macos,python,jupyternotebooks
 # Edit at https://www.toptal.com/developers/gitignore?templates=macos,python,jupyternotebooks

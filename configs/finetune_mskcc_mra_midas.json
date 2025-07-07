@@ -1,0 +1,11 @@
+{
+  "experiment_name": "finetune_mskcc_mra_midas",
+  "dataset_name": "mskcc+mra-midas",
+  "model": "efficientnet_b4_coral",
+  "blur_amount": 21,
+  "learning_rate": 0.0001,
+  "batch_size": 32,
+  "num_epochs": 30,
+  "patience": 5,
+  "checkpoint": "experiments/pretrain_diverse_fp17k_scin_padufes20_ssynth/model.pth"
+}

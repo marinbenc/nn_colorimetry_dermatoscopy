@@ -1,0 +1,10 @@
+{
+  "experiment_name": "pretrain_diverse_fp17k_scin",
+  "model": "efficientnet_b4_coral",
+  "checkpoint": null,
+  "dataset_name": "diverse+fp17k+scin",
+  "blur_amount": 13,
+  "learning_rate": 0.001,
+  "num_epochs": 50,
+  "batch_size": 16
+}

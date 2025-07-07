@@ -1,0 +1,10 @@
+{
+  "experiment_name": "finetune_on_mskcc",
+  "checkpoint": null,
+  "dataset_name": "mskcc",
+  "blur_amount": 21,
+  "learning_rate": 0.0005,
+  "num_epochs": 50,
+  "batch_size": 16,
+  "model": "efficientnet_b4_coral"
+}

@@ -1,0 +1,10 @@
+{
+  "experiment_name": "baseline_mskcc_classification",
+  "checkpoint": null,
+  "dataset_name": "mskcc",
+  "blur_amount": 13,
+  "learning_rate": 0.001,
+  "num_epochs": 50,
+  "batch_size": 16,
+  "model": "efficientnet_b4_classification"
+}

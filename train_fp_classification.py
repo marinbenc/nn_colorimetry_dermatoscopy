@@ -1,56 +1,24 @@
 import torch
 import torch.nn as nn
 import torch.optim as optim
-import torch.nn.functional as F
-from torch.utils.data import DataLoader, WeightedRandomSampler
-from torchvision import transforms
+from torch.utils.data import DataLoader
+from torch.utils.tensorboard import SummaryWriter
 import numpy as np
 import pandas as pd
-import torchvision.models as models
-from coral_pytorch.layers import CoralLayer
-from coral_pytorch.dataset import levels_from_labelbatch
-from coral_pytorch.losses import coral_loss
-import matplotlib.pyplot as plt
-from fp_dataset import FPDataset, bin_FP_by_mel
-from torch.utils.tensorboard import SummaryWriter
 import os
-import argparse
 import json
-from torchvision.models.vgg import VGG11_BN_Weights
-from model_factory import get_model_from_string
 from tqdm import tqdm
+from fp_dataset import FPDataset
+from model_factory import get_efficientnet_b4_classification
 
-def make_stratified_loader(dataset, batch_size, shuffle=True, stratify_by_dataset=True):
-    # If this is a CombinedFPDataset and stratify_by_dataset is True, sample by both dataset and class
-    if stratify_by_dataset and hasattr(dataset, 'file_dataset'):
-        file_dataset = np.array(dataset.file_dataset)
-        labels = np.array(dataset.fps)
-        # Get all (dataset, class) pairs
-        pairs = np.array([f"{d}|{c}" for d, c in zip(file_dataset, labels)])
-        unique_pairs, counts = np.unique(pairs, return_counts=True)
-        # Assign each sample a weight inversely proportional to its (dataset, class) population
-        pair_weights = {pair: 1.0 / count for pair, count in zip(unique_pairs, counts)}
-        samples_weight = np.array([pair_weights[p] for p in pairs])
-        samples_weight = torch.from_numpy(samples_weight).float()
-        sampler = WeightedRandomSampler(samples_weight, len(samples_weight), replacement=True)
-        return DataLoader(dataset, batch_size=batch_size, sampler=sampler)
-    else:
-        # Fallback to class-balanced stratified sampling for single datasets or if disabled
-        labels = np.array(dataset.fps)
-        class_sample_count = np.array([(labels == t).sum() for t in np.unique(labels)])
-        weight = 1. / class_sample_count
-        samples_weight = np.array([weight[np.where(np.unique(labels) == t)[0][0]] for t in labels])
-        samples_weight = torch.from_numpy(samples_weight).float()
-        sampler = WeightedRandomSampler(samples_weight, len(samples_weight), replacement=True)
-        return DataLoader(dataset, batch_size=batch_size, sampler=sampler)
-
-def train_model(model, train_dataset, valid_dataset, lr=0.001, batch_size=32, num_epochs=100, patience=5, num_classes=6, save_path='mel_model.pth', log_dir='runs/fp_regression'):
-    train_loader = make_stratified_loader(train_dataset, batch_size, shuffle=True)
+def train_model(model, train_dataset, valid_dataset, lr=0.001, batch_size=32, num_epochs=100, patience=5, num_classes=6, save_path='mel_model.pth', log_dir='runs/fp_classification'):
+    train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True)
     valid_loader = DataLoader(valid_dataset, batch_size=batch_size, shuffle=False)
 
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     model = model.to(device)
     optimizer = optim.Adam(model.parameters(), lr=lr)
+    criterion = nn.CrossEntropyLoss()
     best_valid_loss = float('inf')
     counter = 0
     writer = SummaryWriter(log_dir=log_dir)
@@ -59,13 +27,11 @@ def train_model(model, train_dataset, valid_dataset, lr=0.001, batch_size=32, nu
         model.train()
         train_loss = 0
         train_iter = tqdm(train_loader, desc=f"Epoch {epoch+1}/{num_epochs} [train]", leave=False)
-        for i, (x, y) in enumerate(train_iter):
-            levels = levels_from_labelbatch(y, num_classes=num_classes)
-            levels = levels.to(device)
+        for x, y in train_iter:
             x, y = x.to(device), y.to(device)
             optimizer.zero_grad()
             logits = model(x)
-            loss = coral_loss(logits, levels)
+            loss = criterion(logits, y)
             loss.backward()
             optimizer.step()
             train_loss += loss.item()
@@ -76,12 +42,10 @@ def train_model(model, train_dataset, valid_dataset, lr=0.001, batch_size=32, nu
         valid_loss = 0
         valid_iter = tqdm(valid_loader, desc=f"Epoch {epoch+1}/{num_epochs} [valid]", leave=False)
         with torch.no_grad():
-            for i, (x, y) in enumerate(valid_iter):
-                levels = levels_from_labelbatch(y, num_classes=num_classes)
-                levels = levels.to(device)
+            for x, y in valid_iter:
                 x, y = x.to(device), y.to(device)
                 logits = model(x)
-                loss = coral_loss(logits, levels)
+                loss = criterion(logits, y)
                 valid_loss += loss.item()
                 valid_iter.set_postfix(loss=loss.item())
             valid_loss /= len(valid_loader)
@@ -104,7 +68,7 @@ def train_model(model, train_dataset, valid_dataset, lr=0.001, batch_size=32, nu
 if __name__ == '__main__':
     import sys
     if len(sys.argv) != 2:
-        print('Usage: python train_fp_regression.py <config_path>')
+        print('Usage: python train_fp_classification.py <config_path>')
         exit(1)
     config_path = sys.argv[1]
     with open(config_path, 'r') as f:
@@ -142,9 +106,7 @@ if __name__ == '__main__':
     valid_dataset = FPDataset(config['dataset_name'], valid_files, blur_amount=config['blur_amount'])
 
     # Model definition
-    if 'model' not in config:
-        raise ValueError('Model type must be specified in the config file ("model" key).')
-    model = get_model_from_string(config['model'], num_classes=6)
+    model = get_efficientnet_b4_classification(num_classes=6)
 
     # Optionally load checkpoint for fine-tuning
     if config.get('checkpoint') is not None and os.path.exists(config['checkpoint']):
