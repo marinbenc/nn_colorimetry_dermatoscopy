@@ -7,5 +7,6 @@
   "batch_size": 32,
   "num_epochs": 30,
   "patience": 5,
-  "checkpoint": "experiments/pretrain_diverse_fp17k_scin_padufes20_ssynth/model.pth"
+  "checkpoint": "experiments/pretrain_diverse_fp17k_scin_padufes20_ssynth/model.pth",
+  "k_folds": 5
 }

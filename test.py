@@ -10,6 +10,10 @@ import json
 import sys
 import os
 
+def run_test_on_split(model, test_dataset, device, batch_size):
+    df = test_fp_regression(model, test_dataset, device=device, batch_size=batch_size, tqdm_cls=tqdm)
+    return df
+
 if __name__ == '__main__':
     import argparse
     parser = argparse.ArgumentParser()
@@ -19,33 +23,64 @@ if __name__ == '__main__':
     with open(args.config_path, 'r') as f:
         config = json.load(f)
 
-    # Optionally override dataset for testing
-    if args.test_dataset_name is not None and args.test_dataset_name != config['dataset_name']:
-        test_dataset_name = args.test_dataset_name
-        print(f"Testing on different dataset: {test_dataset_name}")
-        test_dataset = FPDataset(test_dataset_name, files=None, blur_amount=config['blur_amount'])
-    else:
-        # Load test files from the experiment directory
-        experiment_dir = f"experiments/{config['experiment_name']}"
-        test_files_path = os.path.join(experiment_dir, 'test_files.csv')
-        test_files = pd.read_csv(test_files_path).iloc[:, 0].values
-        test_dataset = FPDataset(config['dataset_name'], files=test_files, blur_amount=config['blur_amount'])
+    experiment_dir = f"experiments/{config['experiment_name']}"
+    device = 'cuda' if torch.cuda.is_available() else 'cpu'
+    batch_size = config['batch_size']
+    model_name = config.get('model', 'efficientnet_b4_coral')
+    num_classes = 6
 
-    # Create model instance and load weights
-    model = get_model_from_string(config.get('model', 'efficientnet_b4_coral'), num_classes=6)
-    # If using a fine-tune config, the checkpoint is always in the experiment dir
-    if os.path.exists(os.path.join(f"experiments/{config['experiment_name']}", 'model.pth')):
-        checkpoint_path = os.path.join(f"experiments/{config['experiment_name']}", 'model.pth')
-    elif config.get('checkpoint') and os.path.exists(config['checkpoint']):
-        checkpoint_path = config['checkpoint']
-    else:
-        raise FileNotFoundError('No valid checkpoint found for testing.')
-    model.load_state_dict(torch.load(checkpoint_path, map_location='cuda' if torch.cuda.is_available() else 'cpu'))
+    # K-fold detection: look for fold_0, fold_1, ...
+    fold_dirs = [d for d in os.listdir(experiment_dir) if d.startswith('fold_') and os.path.isdir(os.path.join(experiment_dir, d))]
+    fold_dirs = sorted(fold_dirs, key=lambda x: int(x.split('_')[1])) if fold_dirs else []
 
-    # Run test
-    df = test_fp_regression(model, test_dataset, device='cuda' if torch.cuda.is_available() else 'cpu', batch_size=config['batch_size'], tqdm_cls=tqdm)
-    # Print classification report
-    print(classification_report(df['fp'], df['pred'], digits=3))
-    # Print Cohen's kappa
-    print('Cohen\'s kappa:', cohen_kappa_score(df['fp'], df['pred'], weights='quadratic'))
+    if fold_dirs:
+        print(f"Detected {len(fold_dirs)} folds. Running k-fold evaluation (aggregated over all validation sets)...")
+        all_dfs = []
+        for fold, fold_dir in enumerate(fold_dirs):
+            fold_path = os.path.join(experiment_dir, fold_dir)
+            valid_files_path = os.path.join(fold_path, 'valid_files.csv')
+            checkpoint_path = os.path.join(fold_path, 'model.pth')
+            if not (os.path.exists(valid_files_path) and os.path.exists(checkpoint_path)):
+                print(f"Skipping {fold_dir}: missing valid_files.csv or model.pth")
+                continue
+            valid_files = pd.read_csv(valid_files_path).iloc[:, 0].values
+            if args.test_dataset_name is not None and args.test_dataset_name != config['dataset_name']:
+                val_dataset = FPDataset(args.test_dataset_name, files=None, blur_amount=config['blur_amount'])
+            else:
+                val_dataset = FPDataset(config['dataset_name'], files=valid_files, blur_amount=config['blur_amount'])
+            model = get_model_from_string(model_name, num_classes=num_classes)
+            model.load_state_dict(torch.load(checkpoint_path, map_location=device))
+            model.to(device)
+            model.eval()
+            df = run_test_on_split(model, val_dataset, device, batch_size)
+            df['fold'] = fold
+            all_dfs.append(df)
+        # Concatenate all validation predictions
+        all_df = pd.concat(all_dfs, ignore_index=True)
+        print("\n=== Aggregated Results Across All Folds (Validation Sets) ===")
+        print(classification_report(all_df['fp'], all_df['pred'], digits=3))
+        print("Cohen's kappa:", cohen_kappa_score(all_df['fp'], all_df['pred'], weights='quadratic'))
+    else:
+        # Single split (no k-folds)
+        if args.test_dataset_name is not None and args.test_dataset_name != config['dataset_name']:
+            test_dataset_name = args.test_dataset_name
+            print(f"Testing on different dataset: {test_dataset_name}")
+            test_dataset = FPDataset(test_dataset_name, files=None, blur_amount=config['blur_amount'])
+        else:
+            test_files_path = os.path.join(experiment_dir, 'test_files.csv')
+            test_files = pd.read_csv(test_files_path).iloc[:, 0].values
+            test_dataset = FPDataset(config['dataset_name'], files=test_files, blur_amount=config['blur_amount'])
+        model = get_model_from_string(model_name, num_classes=num_classes)
+        if os.path.exists(os.path.join(experiment_dir, 'model.pth')):
+            checkpoint_path = os.path.join(experiment_dir, 'model.pth')
+        elif config.get('checkpoint') and os.path.exists(config['checkpoint']):
+            checkpoint_path = config['checkpoint']
+        else:
+            raise FileNotFoundError('No valid checkpoint found for testing.')
+        model.load_state_dict(torch.load(checkpoint_path, map_location=device))
+        model.to(device)
+        model.eval()
+        df = run_test_on_split(model, test_dataset, device, batch_size)
+        print(classification_report(df['fp'], df['pred'], digits=3))
+        print('Cohen\'s kappa:', cohen_kappa_score(df['fp'], df['pred'], weights='quadratic'))
 

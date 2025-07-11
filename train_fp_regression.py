@@ -19,6 +19,7 @@ import json
 from torchvision.models.vgg import VGG11_BN_Weights
 from model_factory import get_model_from_string
 from tqdm import tqdm
+from sklearn.model_selection import KFold
 
 def make_stratified_loader(dataset, batch_size, shuffle=True, stratify_by_dataset=True):
     # If this is a CombinedFPDataset and stratify_by_dataset is True, sample by both dataset and class
@@ -123,42 +124,80 @@ if __name__ == '__main__':
     with open(config_save_path, 'w') as f:
         json.dump(config, f, indent=2)
 
-    # train / valid / test split
+    # K-fold cross validation or standard split
+    k = config.get('k_folds', 0)
     all_dataset = FPDataset(config['dataset_name'], files=None, blur_amount=config['blur_amount'])
-    all_files = all_dataset.orig_files
-    all_files = np.sort(np.array(all_files))
-    np.random.seed(0)
-    np.random.shuffle(all_files)
-    train_files = all_files[:int(0.8*len(all_files))]
-    valid_files = all_files[int(0.8*len(all_files)):int(0.9*len(all_files))]
-    test_files = all_files[int(0.9*len(all_files)):]
-
-    # save the split to csv
-    pd.DataFrame(train_files).to_csv(os.path.join(experiment_dir, 'train_files.csv'), index=False)
-    pd.DataFrame(valid_files).to_csv(os.path.join(experiment_dir, 'valid_files.csv'), index=False)
-    pd.DataFrame(test_files).to_csv(os.path.join(experiment_dir, 'test_files.csv'), index=False)
-
-    train_dataset = FPDataset(config['dataset_name'], train_files, blur_amount=config['blur_amount'])
-    valid_dataset = FPDataset(config['dataset_name'], valid_files, blur_amount=config['blur_amount'])
-
-    # Model definition
-    if 'model' not in config:
-        raise ValueError('Model type must be specified in the config file ("model" key).')
-    model = get_model_from_string(config['model'], num_classes=6)
-
-    # Optionally load checkpoint for fine-tuning
-    if config.get('checkpoint') is not None and os.path.exists(config['checkpoint']):
-        print(f"Loading checkpoint from {config['checkpoint']} for fine-tuning...")
-        model.load_state_dict(torch.load(config['checkpoint'], map_location=torch.device('cpu')))
-
-    # Call the training function
-    trained_model = train_model(
-        model,
-        train_dataset,
-        valid_dataset,
-        lr=config['learning_rate'],
-        batch_size=config['batch_size'],
-        num_epochs=config['num_epochs'],
-        save_path=checkpoint_path,
-        log_dir=log_dir
-    )
+    all_files = np.array(all_dataset.orig_files)
+    # Deterministic shuffle and split using KFold on file list only
+    if k and k > 1:
+        kfold = KFold(n_splits=k, shuffle=True, random_state=0)
+        folds = list(kfold.split(all_files))
+        # Save split indices for reproducibility
+        folds_csv = os.path.join(experiment_dir, 'kfold_indices.csv')
+        pd.DataFrame({f'fold_{i}_train': folds[i][0], f'fold_{i}_val': folds[i][1]} for i in range(k)).to_csv(folds_csv, index=False)
+        used_val_files = set()
+        all_files_set = set(all_files)
+        for fold, (train_idx, val_idx) in enumerate(folds):
+            train_files = all_files[train_idx]
+            val_files = all_files[val_idx]
+            # Assertions
+            assert len(set(train_files) & set(val_files)) == 0, f"Fold {fold}: Train and validation files overlap!"
+            used_val_files.update(val_files)
+            # Save splits
+            fold_dir = os.path.join(experiment_dir, f'fold_{fold}')
+            os.makedirs(fold_dir, exist_ok=True)
+            pd.DataFrame(train_files).to_csv(os.path.join(fold_dir, 'train_files.csv'), index=False)
+            pd.DataFrame(val_files).to_csv(os.path.join(fold_dir, 'valid_files.csv'), index=False)
+            # Prepare datasets
+            train_dataset = FPDataset(config['dataset_name'], train_files, blur_amount=config['blur_amount'])
+            valid_dataset = FPDataset(config['dataset_name'], val_files, blur_amount=config['blur_amount'])
+            # Model definition
+            if 'model' not in config:
+                raise ValueError('Model type must be specified in the config file ("model" key).')
+            model = get_model_from_string(config['model'], num_classes=6)
+            # Optionally load checkpoint for fine-tuning
+            if config.get('checkpoint') is not None and os.path.exists(config['checkpoint']):
+                print(f"Loading checkpoint from {config['checkpoint']} for fine-tuning...")
+                model.load_state_dict(torch.load(config['checkpoint'], map_location=torch.device('cpu')))
+            # Train and save model for this fold
+            fold_checkpoint_path = os.path.join(fold_dir, 'model.pth')
+            trained_model = train_model(
+                model,
+                train_dataset,
+                valid_dataset,
+                lr=config['learning_rate'],
+                batch_size=config['batch_size'],
+                num_epochs=config['num_epochs'],
+                save_path=fold_checkpoint_path,
+                log_dir=os.path.join(fold_dir, 'tensorboard')
+            )
+        # After all folds, check that all validation files are disjoint and cover all samples
+        assert used_val_files == all_files_set, "Not all files are covered in validation sets across folds!"
+    else:
+        # Standard train/val/test split
+        all_files = np.sort(np.array(all_files))
+        np.random.shuffle(all_files)
+        train_files = all_files[:int(0.8*len(all_files))]
+        valid_files = all_files[int(0.8*len(all_files)):int(0.9*len(all_files))]
+        test_files = all_files[int(0.9*len(all_files)):]
+        pd.DataFrame(train_files).to_csv(os.path.join(experiment_dir, 'train_files.csv'), index=False)
+        pd.DataFrame(valid_files).to_csv(os.path.join(experiment_dir, 'valid_files.csv'), index=False)
+        pd.DataFrame(test_files).to_csv(os.path.join(experiment_dir, 'test_files.csv'), index=False)
+        train_dataset = FPDataset(config['dataset_name'], train_files, blur_amount=config['blur_amount'])
+        valid_dataset = FPDataset(config['dataset_name'], valid_files, blur_amount=config['blur_amount'])
+        if 'model' not in config:
+            raise ValueError('Model type must be specified in the config file ("model" key).')
+        model = get_model_from_string(config['model'], num_classes=6)
+        if config.get('checkpoint') is not None and os.path.exists(config['checkpoint']):
+            print(f"Loading checkpoint from {config['checkpoint']} for fine-tuning...")
+            model.load_state_dict(torch.load(config['checkpoint'], map_location=torch.device('cpu')))
+        trained_model = train_model(
+            model,
+            train_dataset,
+            valid_dataset,
+            lr=config['learning_rate'],
+            batch_size=config['batch_size'],
+            num_epochs=config['num_epochs'],
+            save_path=checkpoint_path,
+            log_dir=log_dir
+        )
