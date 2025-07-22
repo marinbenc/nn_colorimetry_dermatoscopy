@@ -1,0 +1,10 @@
+{
+  "experiment_name": "pretrain",
+  "model": "efficientnet_b4_coral",
+  "checkpoint": null,
+  "dataset_name": "diverse+fp17k+scin+pad_ufes_20+mra-midas+ssynth",
+  "blur_amount": 13,
+  "learning_rate": 0.001,
+  "num_epochs": 50,
+  "batch_size": 16
+}

@@ -326,20 +326,13 @@ class FPDataset(Dataset):
         def parse_fp(fp):
             if pd.isnull(fp):
                 return 0
-            s = str(fp).strip().upper()
-            # Try to extract a number 1-6 or roman numeral I-VI
-            if s and s[0] in '123456':
-                try:
-                    val = int(s[0])
-                    if 1 <= val <= 6:
-                        return val
-                except Exception:
-                    pass
-            # Try roman numerals
-            roman_map = {'I': 1, 'II': 2, 'III': 3, 'IV': 4, 'V': 5, 'VI': 6}
-            for roman, val in roman_map.items():
-                if roman in s:
-                    return val
+            s = str(fp).strip().lower()
+            # Use regex to match the roman numeral at the start
+            match = re.match(r'^(vi|iv|iii|ii|v|i)\b', s)
+            roman_map = {'i': 1, 'ii': 2, 'iii': 3, 'iv': 4, 'v': 5, 'vi': 6}
+            if match:
+                roman = match.group(1)
+                return roman_map.get(roman, 0)
             return 0
         df['fp'] = df['midas_fitzpatrick'].apply(parse_fp)
         df = df[df['fp'].isin([1,2,3,4,5,6])]

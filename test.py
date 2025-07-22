@@ -36,6 +36,7 @@ if __name__ == '__main__':
     if fold_dirs:
         print(f"Detected {len(fold_dirs)} folds. Running k-fold evaluation (aggregated over all validation sets)...")
         all_dfs = []
+        all_kappas = []
         for fold, fold_dir in enumerate(fold_dirs):
             fold_path = os.path.join(experiment_dir, fold_dir)
             valid_files_path = os.path.join(fold_path, 'valid_files.csv')
@@ -55,11 +56,18 @@ if __name__ == '__main__':
             df = run_test_on_split(model, val_dataset, device, batch_size)
             df['fold'] = fold
             all_dfs.append(df)
+            # Compute kappa for this fold
+            kappa = cohen_kappa_score(df['fp'], df['pred'], weights='quadratic')
+            all_kappas.append(kappa)
         # Concatenate all validation predictions
         all_df = pd.concat(all_dfs, ignore_index=True)
         print("\n=== Aggregated Results Across All Folds (Validation Sets) ===")
         print(classification_report(all_df['fp'], all_df['pred'], digits=3))
         print("Cohen's kappa:", cohen_kappa_score(all_df['fp'], all_df['pred'], weights='quadratic'))
+        print(f"Mean fold kappa: {np.mean(all_kappas):.4f}")
+        print(f"Std dev fold kappa: {np.std(all_kappas):.4f}")
+        print(f"Min fold kappa: {np.min(all_kappas):.4f}")
+        print(f"Max fold kappa: {np.max(all_kappas):.4f}")
     else:
         # Single split (no k-folds)
         if args.test_dataset_name is not None and args.test_dataset_name != config['dataset_name']:
