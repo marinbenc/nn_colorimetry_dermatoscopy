@@ -5,15 +5,6 @@ from coral_pytorch.dataset import corn_label_from_logits
 from model_factory import get_vgg11_bn_coral
 
 def test_fp_regression(model, test_dataset, device='cuda', batch_size=1, tqdm_cls=None):
-    # Remove blur if blur_amount is 0
-    if hasattr(test_dataset, 'blur_amount') and test_dataset.blur_amount == 0:
-        from torchvision import transforms
-        test_dataset.transform = transforms.Compose([
-            transforms.ToPILImage(),
-            transforms.ToTensor(),
-            transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]),
-        ])
-    
     test_loader = torch.utils.data.DataLoader(test_dataset, batch_size=batch_size, shuffle=False)
     model = model.to(device)
     model.eval()
