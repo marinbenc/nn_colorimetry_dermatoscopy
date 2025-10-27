@@ -10,6 +10,7 @@ mra-midas_processed/
 mskcc_processed/
 fp17k_processed/
 experiments/
+DermoCC-GAN/
 
 # Created by https://www.toptal.com/developers/gitignore/api/macos,python,jupyternotebooks
 # Edit at https://www.toptal.com/developers/gitignore?templates=macos,python,jupyternotebooks
