@@ -1,0 +1,13 @@
+{
+  "experiment_name": "finetune_mskcc_classification",
+  "dataset_name": "mskcc",
+  "model": "efficientnet_b4_classification",
+  "mode": "classification",
+  "blur_amount": 0,
+  "learning_rate": 0.0001,
+  "batch_size": 32,
+  "num_epochs": 30,
+  "patience": 5,
+  "checkpoint": "experiments/pretrain_classification/model.pth",
+  "k_folds": 5
+}

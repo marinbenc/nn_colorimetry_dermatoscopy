@@ -2,8 +2,9 @@ import torch
 import pandas as pd
 import numpy as np
 from fp_dataset import FPDataset
-from model_factory import get_vgg11_bn_coral
-from train_fp_regression import train_model
+from model_factory import get_vgg11_bn_coral, get_efficientnet_b4_classification
+from train_fp_regression import train_model as train_regression_model
+from train_fp_classification import train_model as train_classification_model
 import json
 import os
 import sys
@@ -13,6 +14,7 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument('pretrained_experiment', type=str, help='Name of the experiment to use as pretrained model')
     parser.add_argument('new_config', type=str, help='Path to config file for fine-tuning')
+    parser.add_argument('--mode', type=str, choices=['regression', 'classification'], default='regression', help='Which model mode to fine-tune')
     args = parser.parse_args()
 
     # Load pretrained experiment config and checkpoint
@@ -53,19 +55,36 @@ if __name__ == '__main__':
     train_dataset = FPDataset(config['dataset_name'], train_files, blur_amount=config['blur_amount'])
     valid_dataset = FPDataset(config['dataset_name'], valid_files, blur_amount=config['blur_amount'])
 
-    # Model definition and load pretrained weights
-    model = get_vgg11_bn_coral(num_classes=6)
-    print(f"Loading pretrained weights from {pretrained_ckpt}")
-    model.load_state_dict(torch.load(pretrained_ckpt, map_location=torch.device('cpu')))
+    # Model definition and load pretrained weights depending on mode
+    if args.mode == 'classification':
+        model = get_efficientnet_b4_classification(num_classes=6)
+        print(f"Loading pretrained classification weights from {pretrained_ckpt}")
+        model.load_state_dict(torch.load(pretrained_ckpt, map_location=torch.device('cpu')))
 
-    # Fine-tune on new dataset
-    trained_model = train_model(
-        model,
-        train_dataset,
-        valid_dataset,
-        lr=config['learning_rate'],
-        batch_size=config['batch_size'],
-        num_epochs=config['num_epochs'],
-        save_path=checkpoint_path,
-        log_dir=log_dir
-    )
+        # Fine-tune classification model
+        trained_model = train_classification_model(
+            model,
+            train_dataset,
+            valid_dataset,
+            lr=config['learning_rate'],
+            batch_size=config['batch_size'],
+            num_epochs=config['num_epochs'],
+            save_path=checkpoint_path,
+            log_dir=log_dir
+        )
+    else:
+        model = get_vgg11_bn_coral(num_classes=6)
+        print(f"Loading pretrained regression weights from {pretrained_ckpt}")
+        model.load_state_dict(torch.load(pretrained_ckpt, map_location=torch.device('cpu')))
+
+        # Fine-tune regression model
+        trained_model = train_regression_model(
+            model,
+            train_dataset,
+            valid_dataset,
+            lr=config['learning_rate'],
+            batch_size=config['batch_size'],
+            num_epochs=config['num_epochs'],
+            save_path=checkpoint_path,
+            log_dir=log_dir
+        )

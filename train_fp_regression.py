@@ -20,30 +20,13 @@ from torchvision.models.vgg import VGG11_BN_Weights
 from model_factory import get_model_from_string
 from tqdm import tqdm
 from sklearn.model_selection import KFold
-
-def make_stratified_loader(dataset, batch_size, shuffle=True, stratify_by_dataset=True):
-    # If this is a CombinedFPDataset and stratify_by_dataset is True, sample by both dataset and class
-    if stratify_by_dataset and hasattr(dataset, 'file_dataset'):
-        file_dataset = np.array(dataset.file_dataset)
-        labels = np.array(dataset.fps)
-        # Get all (dataset, class) pairs
-        pairs = np.array([f"{d}|{c}" for d, c in zip(file_dataset, labels)])
-        unique_pairs, counts = np.unique(pairs, return_counts=True)
-        # Assign each sample a weight inversely proportional to its (dataset, class) population
-        pair_weights = {pair: 1.0 / count for pair, count in zip(unique_pairs, counts)}
-        samples_weight = np.array([pair_weights[p] for p in pairs])
-        samples_weight = torch.from_numpy(samples_weight).float()
-        sampler = WeightedRandomSampler(samples_weight, len(samples_weight), replacement=True)
-        return DataLoader(dataset, batch_size=batch_size, sampler=sampler)
-    else:
-        # Fallback to class-balanced stratified sampling for single datasets or if disabled
-        labels = np.array(dataset.fps)
-        class_sample_count = np.array([(labels == t).sum() for t in np.unique(labels)])
-        weight = 1. / class_sample_count
-        samples_weight = np.array([weight[np.where(np.unique(labels) == t)[0][0]] for t in labels])
-        samples_weight = torch.from_numpy(samples_weight).float()
-        sampler = WeightedRandomSampler(samples_weight, len(samples_weight), replacement=True)
-        return DataLoader(dataset, batch_size=batch_size, sampler=sampler)
+from utils.data_split_utils import (
+    make_stratified_loader,
+    generate_leave_one_class_out,
+    generate_kfold,
+    generate_standard_split,
+    save_split_files,
+)
 
 def train_model(model, train_dataset, valid_dataset, lr=0.001, batch_size=32, num_epochs=100, patience=5, num_classes=6, save_path='mel_model.pth', log_dir='runs/fp_regression'):
     train_loader = make_stratified_loader(train_dataset, batch_size, shuffle=True)
@@ -130,24 +113,20 @@ if __name__ == '__main__':
     all_dataset = FPDataset(config['dataset_name'], files=None, blur_amount=config['blur_amount'])
     all_files = np.array(all_dataset.orig_files)
     all_labels = np.array(all_dataset.fps)
-    # Leave-one-class-out logic
+
     if fold_type == 'leave-one-class-out':
         print('Using leave-one-class-out cross-validation.')
+        splits = generate_leave_one_class_out(all_files, all_labels)
         used_val_files = set()
         all_files_set = set(all_files)
-        for fp_class in range(1, 7):
-            val_idx = np.where(all_labels == fp_class)[0]
-            train_idx = np.where(all_labels != fp_class)[0]
-            train_files = all_files[train_idx]
-            val_files = all_files[val_idx]
+        for fold_name, train_files, val_files in splits:
             # Assertions
-            assert len(set(train_files) & set(val_files)) == 0, f"Fold {fp_class}: Train and validation files overlap!"
+            assert len(set(train_files) & set(val_files)) == 0, f"{fold_name}: Train and validation files overlap!"
             used_val_files.update(val_files)
             # Save splits
-            fold_dir = os.path.join(experiment_dir, f'fold_{fp_class-1}')
+            fold_dir = os.path.join(experiment_dir, fold_name)
             os.makedirs(fold_dir, exist_ok=True)
-            pd.DataFrame(train_files).to_csv(os.path.join(fold_dir, 'train_files.csv'), index=False)
-            pd.DataFrame(val_files).to_csv(os.path.join(fold_dir, 'valid_files.csv'), index=False)
+            save_split_files(fold_dir, train_files, val_files)
             # Prepare datasets
             train_dataset = FPDataset(config['dataset_name'], train_files, blur_amount=config['blur_amount'])
             valid_dataset = FPDataset(config['dataset_name'], val_files, blur_amount=config['blur_amount'])
@@ -174,24 +153,19 @@ if __name__ == '__main__':
         # After all folds, check that all validation files are disjoint and cover all samples
         assert used_val_files == all_files_set, "Not all files are covered in validation sets across folds!"
     elif k and k > 1:
-        kfold = KFold(n_splits=k, shuffle=True, random_state=0)
-        folds = list(kfold.split(all_files))
+        splits = generate_kfold(all_files, k)
         # Save split indices for reproducibility
-        folds_csv = os.path.join(experiment_dir, 'kfold_indices.csv')
-        pd.DataFrame({f'fold_{i}_train': folds[i][0], f'fold_{i}_val': folds[i][1]} for i in range(k)).to_csv(folds_csv, index=False)
+        # we will save per-fold CSVs below and also save a small index file if desired
         used_val_files = set()
         all_files_set = set(all_files)
-        for fold, (train_idx, val_idx) in enumerate(folds):
-            train_files = all_files[train_idx]
-            val_files = all_files[val_idx]
+        for fold, train_files, val_files in splits:
             # Assertions
             assert len(set(train_files) & set(val_files)) == 0, f"Fold {fold}: Train and validation files overlap!"
             used_val_files.update(val_files)
             # Save splits
             fold_dir = os.path.join(experiment_dir, f'fold_{fold}')
             os.makedirs(fold_dir, exist_ok=True)
-            pd.DataFrame(train_files).to_csv(os.path.join(fold_dir, 'train_files.csv'), index=False)
-            pd.DataFrame(val_files).to_csv(os.path.join(fold_dir, 'valid_files.csv'), index=False)
+            save_split_files(fold_dir, train_files, val_files)
             # Prepare datasets
             train_dataset = FPDataset(config['dataset_name'], train_files, blur_amount=config['blur_amount'])
             valid_dataset = FPDataset(config['dataset_name'], val_files, blur_amount=config['blur_amount'])
@@ -219,11 +193,7 @@ if __name__ == '__main__':
         assert used_val_files == all_files_set, "Not all files are covered in validation sets across folds!"
     else:
         # Standard train/val/test split
-        all_files = np.sort(np.array(all_files))
-        np.random.shuffle(all_files)
-        train_files = all_files[:int(0.8*len(all_files))]
-        valid_files = all_files[int(0.8*len(all_files)):int(0.9*len(all_files))]
-        test_files = all_files[int(0.9*len(all_files)):]
+        train_files, valid_files, test_files = generate_standard_split(all_files, train_frac=0.8, val_frac=0.1, test_frac=0.1, seed=0)
         pd.DataFrame(train_files).to_csv(os.path.join(experiment_dir, 'train_files.csv'), index=False)
         pd.DataFrame(valid_files).to_csv(os.path.join(experiment_dir, 'valid_files.csv'), index=False)
         pd.DataFrame(test_files).to_csv(os.path.join(experiment_dir, 'test_files.csv'), index=False)

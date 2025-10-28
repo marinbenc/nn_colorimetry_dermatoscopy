@@ -9,46 +9,57 @@ from tqdm import tqdm
 from sklearn.metrics import classification_report, cohen_kappa_score, confusion_matrix
 from fp_dataset import FPDataset
 from model_factory import get_efficientnet_b4_classification
+from utils.test_utils import evaluate_experiment, run_test_loop
+
+def test_fp_classification(model, test_dataset, device='cuda', batch_size=32, tqdm_cls=None):
+    """Wrapper for classification tests to match the regression test API.
+
+    Returns a DataFrame with columns ['fp','pred','file'].
+    """
+    # Use shared run_test_loop from utils to avoid duplicate code
+    df = run_test_loop(model, test_dataset, device=device, batch_size=batch_size, predict_fn=None, tqdm_cls=tqdm_cls)
+    return df
+
 
 if __name__ == '__main__':
     import sys
-    if len(sys.argv) != 2:
-        print('Usage: python test_fp_classification.py <config_path>')
+    if len(sys.argv) < 2:
+        print('Usage: python test_fp_classification.py <config_path> [--test_dataset_name NAME]')
         exit(1)
     config_path = sys.argv[1]
+    # Optional override argument for testing on a different dataset name (full dataset)
+    test_dataset_name = None
+    if len(sys.argv) > 2:
+        # allow '--test_dataset_name' value
+        if sys.argv[2].startswith('--test_dataset_name') and len(sys.argv) > 3:
+            test_dataset_name = sys.argv[3]
+
     with open(config_path, 'r') as f:
         config = json.load(f)
 
     experiment_dir = f"experiments/{config['experiment_name']}"
-    checkpoint_path = os.path.join(experiment_dir, 'model.pth')
-    test_files_path = os.path.join(experiment_dir, 'test_files.csv')
-
-    # Load test files
-    test_files = pd.read_csv(test_files_path).values.squeeze().tolist()
-    if isinstance(test_files, str):
-        test_files = [test_files]
-
-    test_dataset = FPDataset(config['dataset_name'], test_files, blur_amount=config['blur_amount'])
-    test_loader = DataLoader(test_dataset, batch_size=config.get('batch_size', 32), shuffle=False)
-
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-    model = get_efficientnet_b4_classification(num_classes=6)
-    model.load_state_dict(torch.load(checkpoint_path, map_location=device))
-    model = model.to(device)
-    model.eval()
+    batch_size = config.get('batch_size', 32)
+    model_name = config.get('model', 'efficientnet_b4_coral')
+    num_classes = 6
 
-    all_preds = []
-    all_labels = []
-    with torch.no_grad():
-        for x, y in tqdm(test_loader, desc='Testing'):
-            x = x.to(device)
-            logits = model(x)
-            preds = torch.argmax(logits, dim=1).cpu().numpy()
-            all_preds.extend(preds)
-            all_labels.extend(y.numpy())
+    # Use shared evaluation helper to avoid duplicating fold handling & aggregation
+    def model_builder(n):
+        return get_efficientnet_b4_classification(num_classes=n)
 
-    print('Classification report:')
-    print(classification_report(all_labels, all_preds, digits=3))
-    print('Cohen kappa:', cohen_kappa_score(all_labels, all_preds))
-    print('Confusion matrix:')
-    print(confusion_matrix(all_labels, all_preds))
+    def dataset_builder(name, files, blur_amount):
+        return FPDataset(name, files=files, blur_amount=blur_amount)
+
+    # For classification, default predict_fn (argmax) is fine, so pass None
+    evaluate_experiment(
+        config=config,
+        experiment_dir=experiment_dir,
+        model_builder=model_builder,
+        dataset_builder=dataset_builder,
+        predict_fn=None,
+        num_classes=num_classes,
+        batch_size=batch_size,
+        device=device,
+        test_dataset_name=test_dataset_name,
+        tqdm_cls=tqdm,
+    )

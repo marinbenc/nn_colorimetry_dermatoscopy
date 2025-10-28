@@ -10,9 +10,16 @@ import json
 from tqdm import tqdm
 from fp_dataset import FPDataset
 from model_factory import get_efficientnet_b4_classification
+from utils.data_split_utils import (
+    make_stratified_loader,
+    generate_leave_one_class_out,
+    generate_kfold,
+    generate_standard_split,
+    save_split_files,
+)
 
 def train_model(model, train_dataset, valid_dataset, lr=0.001, batch_size=32, num_epochs=100, patience=5, num_classes=6, save_path='mel_model.pth', log_dir='runs/fp_classification'):
-    train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True)
+    train_loader = make_stratified_loader(train_dataset, batch_size, shuffle=True)
     valid_loader = DataLoader(valid_dataset, batch_size=batch_size, shuffle=False)
 
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
@@ -87,40 +94,88 @@ if __name__ == '__main__':
     with open(config_save_path, 'w') as f:
         json.dump(config, f, indent=2)
 
-    # train / valid / test split
+    # K-fold / leave-one-class-out / standard split support (mirror regression script behavior)
+    fold_type = config.get('fold_type', 'kfold')
+    k = config.get('k_folds', 0)
     all_dataset = FPDataset(config['dataset_name'], files=None, blur_amount=config['blur_amount'])
-    all_files = all_dataset.orig_files
-    all_files = np.sort(np.array(all_files))
-    np.random.seed(0)
-    np.random.shuffle(all_files)
-    train_files = all_files[:int(0.8*len(all_files))]
-    valid_files = all_files[int(0.8*len(all_files)):int(0.9*len(all_files))]
-    test_files = all_files[int(0.9*len(all_files)):]
+    all_files = np.array(all_dataset.orig_files)
+    all_labels = np.array(all_dataset.fps)
 
-    # save the split to csv
-    pd.DataFrame(train_files).to_csv(os.path.join(experiment_dir, 'train_files.csv'), index=False)
-    pd.DataFrame(valid_files).to_csv(os.path.join(experiment_dir, 'valid_files.csv'), index=False)
-    pd.DataFrame(test_files).to_csv(os.path.join(experiment_dir, 'test_files.csv'), index=False)
-
-    train_dataset = FPDataset(config['dataset_name'], train_files, blur_amount=config['blur_amount'])
-    valid_dataset = FPDataset(config['dataset_name'], valid_files, blur_amount=config['blur_amount'])
-
-    # Model definition
-    model = get_efficientnet_b4_classification(num_classes=6)
-
-    # Optionally load checkpoint for fine-tuning
-    if config.get('checkpoint') is not None and os.path.exists(config['checkpoint']):
-        print(f"Loading checkpoint from {config['checkpoint']} for fine-tuning...")
-        model.load_state_dict(torch.load(config['checkpoint'], map_location=torch.device('cpu')))
-
-    # Call the training function
-    trained_model = train_model(
-        model,
-        train_dataset,
-        valid_dataset,
-        lr=config['learning_rate'],
-        batch_size=config['batch_size'],
-        num_epochs=config['num_epochs'],
-        save_path=checkpoint_path,
-        log_dir=log_dir
-    )
+    if fold_type == 'leave-one-class-out':
+        print('Using leave-one-class-out cross-validation.')
+        splits = generate_leave_one_class_out(all_files, all_labels)
+        used_val_files = set()
+        all_files_set = set(all_files)
+        for fold_name, train_files, val_files in splits:
+            assert len(set(train_files) & set(val_files)) == 0, f"{fold_name}: Train and validation files overlap!"
+            used_val_files.update(val_files)
+            fold_dir = os.path.join(experiment_dir, fold_name)
+            os.makedirs(fold_dir, exist_ok=True)
+            save_split_files(fold_dir, train_files, val_files)
+            train_dataset = FPDataset(config['dataset_name'], train_files, blur_amount=config['blur_amount'])
+            valid_dataset = FPDataset(config['dataset_name'], val_files, blur_amount=config['blur_amount'])
+            model = get_efficientnet_b4_classification(num_classes=6)
+            if config.get('checkpoint') is not None and os.path.exists(config['checkpoint']):
+                print(f"Loading checkpoint from {config['checkpoint']} for fine-tuning...")
+                model.load_state_dict(torch.load(config['checkpoint'], map_location=torch.device('cpu')))
+            fold_checkpoint_path = os.path.join(fold_dir, 'model.pth')
+            trained_model = train_model(
+                model,
+                train_dataset,
+                valid_dataset,
+                lr=config['learning_rate'],
+                batch_size=config['batch_size'],
+                num_epochs=config['num_epochs'],
+                save_path=fold_checkpoint_path,
+                log_dir=os.path.join(fold_dir, 'tensorboard')
+            )
+        assert used_val_files == all_files_set, "Not all files are covered in validation sets across folds!"
+    elif k and k > 1:
+        splits = generate_kfold(all_files, k)
+        used_val_files = set()
+        all_files_set = set(all_files)
+        for fold, train_files, val_files in splits:
+            assert len(set(train_files) & set(val_files)) == 0, f"Fold {fold}: Train and validation files overlap!"
+            used_val_files.update(val_files)
+            fold_dir = os.path.join(experiment_dir, f'fold_{fold}')
+            os.makedirs(fold_dir, exist_ok=True)
+            save_split_files(fold_dir, train_files, val_files)
+            train_dataset = FPDataset(config['dataset_name'], train_files, blur_amount=config['blur_amount'])
+            valid_dataset = FPDataset(config['dataset_name'], val_files, blur_amount=config['blur_amount'])
+            model = get_efficientnet_b4_classification(num_classes=6)
+            if config.get('checkpoint') is not None and os.path.exists(config['checkpoint']):
+                print(f"Loading checkpoint from {config['checkpoint']} for fine-tuning...")
+                model.load_state_dict(torch.load(config['checkpoint'], map_location=torch.device('cpu')))
+            fold_checkpoint_path = os.path.join(fold_dir, 'model.pth')
+            trained_model = train_model(
+                model,
+                train_dataset,
+                valid_dataset,
+                lr=config['learning_rate'],
+                batch_size=config['batch_size'],
+                num_epochs=config['num_epochs'],
+                save_path=fold_checkpoint_path,
+                log_dir=os.path.join(fold_dir, 'tensorboard')
+            )
+        assert used_val_files == all_files_set, "Not all files are covered in validation sets across folds!"
+    else:
+        train_files, valid_files, test_files = generate_standard_split(all_files, train_frac=0.8, val_frac=0.1, test_frac=0.1, seed=0)
+        pd.DataFrame(train_files).to_csv(os.path.join(experiment_dir, 'train_files.csv'), index=False)
+        pd.DataFrame(valid_files).to_csv(os.path.join(experiment_dir, 'valid_files.csv'), index=False)
+        pd.DataFrame(test_files).to_csv(os.path.join(experiment_dir, 'test_files.csv'), index=False)
+        train_dataset = FPDataset(config['dataset_name'], train_files, blur_amount=config['blur_amount'])
+        valid_dataset = FPDataset(config['dataset_name'], valid_files, blur_amount=config['blur_amount'])
+        model = get_efficientnet_b4_classification(num_classes=6)
+        if config.get('checkpoint') is not None and os.path.exists(config['checkpoint']):
+            print(f"Loading checkpoint from {config['checkpoint']} for fine-tuning...")
+            model.load_state_dict(torch.load(config['checkpoint'], map_location=torch.device('cpu')))
+        trained_model = train_model(
+            model,
+            train_dataset,
+            valid_dataset,
+            lr=config['learning_rate'],
+            batch_size=config['batch_size'],
+            num_epochs=config['num_epochs'],
+            save_path=checkpoint_path,
+            log_dir=log_dir
+        )
