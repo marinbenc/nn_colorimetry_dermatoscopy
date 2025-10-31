@@ -10,6 +10,7 @@ from tqdm import tqdm
 from concurrent.futures import ThreadPoolExecutor
 import matplotlib.pyplot as plt
 from torchvision import transforms
+from white_balance import shades_of_grey_wb
 
 def bin_FP_by_mel(mel_range, mel):
     # find the category that mel falls into
@@ -26,15 +27,16 @@ def bin_FP_by_mel(mel_range, mel):
     return None
 
 class FPDataset(Dataset):
-    def __new__(cls, dataset_name, files, blur_amount=21):
+    def __new__(cls, dataset_name, files, blur_amount=21, white_balance=False):
         if '+' in dataset_name:
             dataset_names = dataset_name.split('+')
-            return CombinedFPDataset(dataset_names, files, blur_amount)
+            return CombinedFPDataset(dataset_names, files, blur_amount, white_balance)
         return super().__new__(cls)
 
-    def __init__(self, dataset_name, files, blur_amount=21):
+    def __init__(self, dataset_name, files, blur_amount=21, white_balance=False):
         self.dataset_name = dataset_name
         self.blur_amount = blur_amount
+        self.white_balance = white_balance
         self.orig_files = []  # Always store original file paths
         self.fps = []
         self.processed_dir = f"{dataset_name}_processed"
@@ -354,6 +356,9 @@ class FPDataset(Dataset):
         img_path = self.get_processed_path(orig_path)
         img = cv2.imread(img_path)
         img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
+        if self.white_balance:
+            img = shades_of_grey_wb(img, p=6)
+            img = (img * 255).astype(np.uint8)
         if self.transform:
             img = self.transform(img)
         fp = self.fps[idx] - 1
@@ -361,15 +366,16 @@ class FPDataset(Dataset):
         return img, fp
 
 class CombinedFPDataset(Dataset):
-    def __init__(self, dataset_names, files, blur_amount=21):
+    def __init__(self, dataset_names, files, blur_amount=21, white_balance=False):
         self.datasets = []
         self.orig_files = []
         self.fps = []
         self.file_dataset = []
         self.blur_amount = blur_amount
+        self.white_balance = white_balance
         
         for name in dataset_names:
-            ds = FPDataset(name, files, blur_amount=blur_amount)
+            ds = FPDataset(name, files, blur_amount=blur_amount, white_balance=white_balance)
             self.datasets.append(ds)
             self.orig_files.extend(ds.orig_files)
             self.fps.extend(ds.fps)

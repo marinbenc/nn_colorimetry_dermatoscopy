@@ -110,7 +110,9 @@ if __name__ == '__main__':
     # K-fold cross validation or standard split
     fold_type = config.get('fold_type', 'kfold')
     k = config.get('k_folds', 0)
-    all_dataset = FPDataset(config['dataset_name'], files=None, blur_amount=config['blur_amount'])
+    # Read white_balance flag from config (default False)
+    white_balance_flag = config.get('white_balance', False)
+    all_dataset = FPDataset(config['dataset_name'], files=None, blur_amount=config['blur_amount'], white_balance=white_balance_flag)
     all_files = np.array(all_dataset.orig_files)
     all_labels = np.array(all_dataset.fps)
 
@@ -127,9 +129,9 @@ if __name__ == '__main__':
             fold_dir = os.path.join(experiment_dir, fold_name)
             os.makedirs(fold_dir, exist_ok=True)
             save_split_files(fold_dir, train_files, val_files)
-            # Prepare datasets
-            train_dataset = FPDataset(config['dataset_name'], train_files, blur_amount=config['blur_amount'])
-            valid_dataset = FPDataset(config['dataset_name'], val_files, blur_amount=config['blur_amount'])
+            # Prepare datasets (pass white_balance from config)
+            train_dataset = FPDataset(config['dataset_name'], train_files, blur_amount=config['blur_amount'], white_balance=white_balance_flag)
+            valid_dataset = FPDataset(config['dataset_name'], val_files, blur_amount=config['blur_amount'], white_balance=white_balance_flag)
             # Model definition
             if 'model' not in config:
                 raise ValueError('Model type must be specified in the config file ("model" key).')
@@ -166,9 +168,9 @@ if __name__ == '__main__':
             fold_dir = os.path.join(experiment_dir, f'fold_{fold}')
             os.makedirs(fold_dir, exist_ok=True)
             save_split_files(fold_dir, train_files, val_files)
-            # Prepare datasets
-            train_dataset = FPDataset(config['dataset_name'], train_files, blur_amount=config['blur_amount'])
-            valid_dataset = FPDataset(config['dataset_name'], val_files, blur_amount=config['blur_amount'])
+            # Prepare datasets (pass white_balance from config)
+            train_dataset = FPDataset(config['dataset_name'], train_files, blur_amount=config['blur_amount'], white_balance=white_balance_flag)
+            valid_dataset = FPDataset(config['dataset_name'], val_files, blur_amount=config['blur_amount'], white_balance=white_balance_flag)
             # Model definition
             if 'model' not in config:
                 raise ValueError('Model type must be specified in the config file ("model" key).')
@@ -197,8 +199,8 @@ if __name__ == '__main__':
         pd.DataFrame(train_files).to_csv(os.path.join(experiment_dir, 'train_files.csv'), index=False)
         pd.DataFrame(valid_files).to_csv(os.path.join(experiment_dir, 'valid_files.csv'), index=False)
         pd.DataFrame(test_files).to_csv(os.path.join(experiment_dir, 'test_files.csv'), index=False)
-        train_dataset = FPDataset(config['dataset_name'], train_files, blur_amount=config['blur_amount'])
-        valid_dataset = FPDataset(config['dataset_name'], valid_files, blur_amount=config['blur_amount'])
+        train_dataset = FPDataset(config['dataset_name'], train_files, blur_amount=config['blur_amount'], white_balance=white_balance_flag)
+        valid_dataset = FPDataset(config['dataset_name'], valid_files, blur_amount=config['blur_amount'], white_balance=white_balance_flag)
         if 'model' not in config:
             raise ValueError('Model type must be specified in the config file ("model" key).')
         model = get_model_from_string(config['model'], num_classes=6)
