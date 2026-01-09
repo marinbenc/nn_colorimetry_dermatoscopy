@@ -1,12 +1,13 @@
 import json
 import sys
-from fp_dataset import FPDataset
-from trainer import RegressionTrainer
+from lab_dataset import LabDataset
+from trainer import LabRegressionTrainer
 from train_utils import run_training_pipeline
+from model_factory import get_model_from_string
 
 if __name__ == '__main__':
     if len(sys.argv) != 2:
-        print('Usage: python train_fp_regression.py <config_path>')
+        print('Usage: python train_lab_regression.py <config_path>')
         exit(1)
     
     config_path = sys.argv[1]
@@ -17,13 +18,10 @@ if __name__ == '__main__':
     if 'model' not in config:
         raise ValueError('Model type must be specified in the config file ("model" key).')
     
-    # Read white_balance flag from config (default False)
-    white_balance_flag = config.get('white_balance', False)
-    
-    # Run training pipeline with RegressionTrainer
+    # Run training pipeline with LabRegressionTrainer
     run_training_pipeline(
         config,
-        trainer_class=RegressionTrainer,
-        dataset_class=FPDataset,
-        white_balance=white_balance_flag
+        trainer_class=LabRegressionTrainer,
+        dataset_class=LabDataset,
+        white_balance=False
     )

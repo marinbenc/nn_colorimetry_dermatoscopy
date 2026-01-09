@@ -1,0 +1,12 @@
+{
+  "experiment_name": "finetune_mskcc_blur0_lab",
+  "dataset_name": "mskcc",
+  "model": "efficientnet_b4_lab",
+  "blur_amount": 0,
+  "learning_rate": 0.0005,
+  "batch_size": 32,
+  "num_epochs": 50,
+  "patience": 5,
+  "checkpoint": "experiments/pretrain_blur0/model.pth",
+  "k_folds": 5
+}
