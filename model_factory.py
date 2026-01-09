@@ -39,6 +39,12 @@ def get_efficientnet_b4_classification(num_classes=6, weights=EfficientNet_B4_We
     model.classifier[1] = nn.Linear(in_features, num_classes)
     return model
 
+def get_efficientnet_b4_lab(num_outputs=3, weights=EfficientNet_B4_Weights.IMAGENET1K_V1):
+    model = efficientnet_b4(weights=weights)
+    in_features = model.classifier[1].in_features
+    model.classifier[1] = nn.Linear(in_features, num_outputs)
+    return model
+
 MODEL_FACTORY = {
     'vgg11_bn_coral': get_vgg11_bn_coral,
     'vgg11_bn_classification': get_vgg11_bn_classification,
@@ -46,12 +52,16 @@ MODEL_FACTORY = {
     'efficientnet_b0_classification': get_efficientnet_b0_classification,
     'efficientnet_b4_coral': get_efficientnet_b4_coral,
     'efficientnet_b4_classification': get_efficientnet_b4_classification,
+    'efficientnet_b4_lab': get_efficientnet_b4_lab,
 }
 
 def get_model_from_string(model_name, num_classes=6, weights=None):
     if model_name not in MODEL_FACTORY:
         raise ValueError(f"Unknown model name: {model_name}")
-    # If weights is None, use default weights for each model
+    if model_name.endswith('lab'):
+        if weights is None:
+            return MODEL_FACTORY[model_name](num_outputs=3)
+        return MODEL_FACTORY[model_name](num_outputs=3, weights=weights)
     if weights is None:
         return MODEL_FACTORY[model_name](num_classes=num_classes)
     return MODEL_FACTORY[model_name](num_classes=num_classes, weights=weights)
