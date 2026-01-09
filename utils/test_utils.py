@@ -106,7 +106,7 @@ def evaluate_experiment(config: dict,
             df = run_test_loop(model, val_dataset, device=device, batch_size=batch_size, predict_fn=predict_fn, tqdm_cls=tqdm_cls)
             df['fold'] = fold
             all_dfs.append(df)
-            kappa = cohen_kappa_score(df['fp'], df['pred'], weights='quadratic')
+            kappa = cohen_kappa_score(df['fp'], df['pred'], weights='linear')
             all_kappas.append(kappa)
 
         if len(all_dfs) == 0:
@@ -114,7 +114,7 @@ def evaluate_experiment(config: dict,
         all_df = pd.concat(all_dfs, ignore_index=True)
         print("\n=== Aggregated Results Across All Folds (Validation Sets) ===")
         print(classification_report(all_df['fp'], all_df['pred'], digits=3))
-        print("Cohen's kappa:", cohen_kappa_score(all_df['fp'], all_df['pred'], weights='quadratic'))
+        print("Cohen's kappa:", cohen_kappa_score(all_df['fp'], all_df['pred'], weights='linear'))
         print(f"Mean fold kappa: {np.mean(all_kappas):.4f}")
         print(f"Std dev fold kappa: {np.std(all_kappas):.4f}")
         print(f"Min fold kappa: {np.min(all_kappas):.4f}")
@@ -141,5 +141,5 @@ def evaluate_experiment(config: dict,
         model.eval()
         df = run_test_loop(model, test_dataset, device=device, batch_size=batch_size, predict_fn=predict_fn, tqdm_cls=tqdm_cls)
         print(classification_report(df['fp'], df['pred'], digits=3))
-        print("Cohen's kappa:", cohen_kappa_score(df['fp'], df['pred'], weights='quadratic'))
+        print("Cohen's kappa:", cohen_kappa_score(df['fp'], df['pred'], weights='linear'))
         return df
