@@ -59,5 +59,17 @@ if __name__ == '__main__':
         tqdm_cls=tqdm,
     )
 
-    # evaluate_experiment already prints reports; but return or further processing can be done here
-
+    # Save aggregated results
+    try:
+        results_path = os.path.join('test_results', f"{config['experiment_name']}.csv")
+        results_dir = os.path.dirname(results_path)
+        if results_dir:
+            os.makedirs(results_dir, exist_ok=True)
+        if aggregate_df is not None:
+            aggregate_df.to_csv(results_path, index=False)
+            print(f"Saved aggregated test results to: {results_path}")
+        else:
+            print("No aggregated results to save (aggregate_df is None)")
+    except Exception as e:
+        print(f"Failed to save aggregated results: {e}")
+    

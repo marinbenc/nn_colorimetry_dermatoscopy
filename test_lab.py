@@ -122,6 +122,7 @@ def eval_fold(checkpoint_path: str, files_csv: str, config: dict, device: str, t
         'delta_e': delta_e,
         'ita_gt': ita_gt,
         'ita_pred': ita_pred,
+        'ita_icc3_1': icc3_ita,
     })
 
     return results, df
@@ -177,7 +178,7 @@ def main():
 
         # Optionally, save combined predictions
         all_df = pd.concat(all_dfs, ignore_index=True)
-        all_df_path = os.path.join(experiment_dir, 'lab_eval_aggregated.csv')
+        all_df_path = os.path.join('test_results', f"{config['experiment_name']}.csv")
         all_df.to_csv(all_df_path, index=False)
         print(f"Saved aggregated predictions to {all_df_path}")
     else:
