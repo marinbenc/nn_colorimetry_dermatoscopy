@@ -40,22 +40,15 @@ class FPDataset(Dataset):
         self.orig_files = []  # Always store original file paths
         self.fps = []
         self.processed_dir = f"{dataset_name}_processed"
-        if dataset_name == 'ssynth':
-            self.ssynth_init(files)
-        elif dataset_name == 'mskcc':
-            self.mskcc_init(files)
-        elif dataset_name == 'diverse':
-            self.diverse_init(files)
-        elif dataset_name == 'fp17k':
-            self.fp17k_init(files)
-        elif dataset_name == 'scin':
-            self.scin_init(files)
-        elif dataset_name == 'pad_ufes_20':
-            self.pad_ufes_20_init(files)
-        elif dataset_name == 'mra-midas':
-            self.mra_midas_init(files)
-        else:
-            raise ValueError(f"Unknown dataset_name: {dataset_name}")
+        
+        # Dynamically call the appropriate init method
+        init_method_name = f"{dataset_name}_init"
+        if not hasattr(self, init_method_name):
+            raise ValueError(f"Unknown dataset_name: {dataset_name}. No method '{init_method_name}' found.")
+        
+        init_method = getattr(self, init_method_name)
+        init_method(files)
+        
         # Build transform pipeline, remove blur if blur_amount is 0
         if self.blur_amount == 0:
             self.transform = transforms.Compose([
@@ -154,6 +147,7 @@ class FPDataset(Dataset):
         self.orig_files = df['image_path'].tolist()
         fp_map = {'I': 1, 'II': 2, 'III': 3, 'IV': 4, 'V': 5, 'VI': 6}
         self.fps = [fp_map.get(str(fp).strip().upper(), 0) for fp in df['fitzpatrick_skin_type']]
+        self.patient_ids = df['patient_id'].tolist()
         self.ensure_processed_images(self.orig_files, self.processed_dir)
         print(f"[FPDataset] {len(self.orig_files)} processed files found for mskcc out of {len(df)} total entries.")
 

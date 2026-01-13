@@ -75,18 +75,45 @@ def generate_leave_one_class_out(all_files: np.ndarray, all_labels: np.ndarray) 
     return splits
 
 
-def generate_kfold(all_files: np.ndarray, k: int, random_state: int = 0):
-    """Generate k-fold train/val splits returning a list of (fold_index, train_files, val_files)."""
+def generate_kfold(all_files: np.ndarray, k: int, random_state: int = 0, patient_ids: Optional[np.ndarray] = None):
+    """Generate k-fold train/val splits returning a list of (fold_index, train_files, val_files).
+    
+    If patient_ids is provided, performs per-patient splitting (all images from same patient stay together).
+    Otherwise, performs per-file splitting.
+    """
     from sklearn.model_selection import KFold
 
     all_files = np.array(all_files)
-    kfold = KFold(n_splits=k, shuffle=True, random_state=random_state)
-    splits = []
-    for fold, (train_idx, val_idx) in enumerate(kfold.split(all_files)):
-        train_files = all_files[train_idx]
-        val_files = all_files[val_idx]
-        splits.append((fold, train_files, val_files))
-    return splits
+    
+    if patient_ids is not None:
+        # Per-patient splitting: group files by patient, then split patients
+        patient_ids = np.array(patient_ids)
+        unique_patients, patient_indices = np.unique(patient_ids, return_inverse=True)
+        
+        # Split patients (not files)
+        kfold = KFold(n_splits=k, shuffle=True, random_state=random_state)
+        splits = []
+        for fold, (train_patient_idx, val_patient_idx) in enumerate(kfold.split(unique_patients)):
+            train_patients = unique_patients[train_patient_idx]
+            val_patients = unique_patients[val_patient_idx]
+            
+            # Get all files belonging to train/val patients
+            train_files_mask = np.isin(patient_ids, train_patients)
+            val_files_mask = np.isin(patient_ids, val_patients)
+            
+            train_files = all_files[train_files_mask]
+            val_files = all_files[val_files_mask]
+            splits.append((fold, train_files, val_files))
+        return splits
+    else:
+        # Per-file splitting (original behavior)
+        kfold = KFold(n_splits=k, shuffle=True, random_state=random_state)
+        splits = []
+        for fold, (train_idx, val_idx) in enumerate(kfold.split(all_files)):
+            train_files = all_files[train_idx]
+            val_files = all_files[val_idx]
+            splits.append((fold, train_files, val_files))
+        return splits
 
 
 def generate_standard_split(all_files: np.ndarray, train_frac=0.8, val_frac=0.1, test_frac=0.1, seed: Optional[int] = None):

@@ -45,6 +45,9 @@ class LabDataset(FPDataset):
         fp_map = {'I': 1, 'II': 2, 'III': 3, 'IV': 4, 'V': 5, 'VI': 6}
         self.fps = [fp_map.get(str(fp).strip().upper(), 0) for fp in df['fitzpatrick_skin_type']]
 
+        # Load patient IDs (from metadata.csv)
+        self.patient_ids = df['patient_id'].tolist()
+
         # Note: self.fps is used for stratification (see utils/data_split_utils.py)
 
         # Load Lab values (from s7.csv, in same order as orig_files and fps)

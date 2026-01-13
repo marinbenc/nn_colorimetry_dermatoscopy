@@ -65,7 +65,7 @@ def load_model(config, model_loader_fn=None):
     return model
 
 
-def generate_splits(config, all_files, all_labels, experiment_dir):
+def generate_splits(config, all_files, all_labels, experiment_dir, patient_ids=None):
     """Generate train/valid splits based on fold type and return list of (fold_name, train_files, val_files) tuples"""
     fold_type = config.get('fold_type', 'kfold')
     k = config.get('k_folds', 0)
@@ -75,8 +75,11 @@ def generate_splits(config, all_files, all_labels, experiment_dir):
         print('Using leave-one-class-out cross-validation.')
         splits = list(generate_leave_one_class_out(all_files, all_labels))
     elif k and k > 1:
-        print(f'Using {k}-fold cross-validation.')
-        fold_splits = list(generate_kfold(all_files, k))
+        if patient_ids is not None:
+            print(f'Using {k}-fold cross-validation (per-patient splitting).')
+        else:
+            print(f'Using {k}-fold cross-validation.')
+        fold_splits = list(generate_kfold(all_files, k, patient_ids=patient_ids))
         # Convert (fold_number, train_files, val_files) to (fold_name, train_files, val_files)
         splits = [(f'fold_{fold}', train_files, val_files) for fold, train_files, val_files in fold_splits]
     else:
@@ -123,8 +126,11 @@ def run_training_pipeline(config, trainer_class, dataset_class=FPDataset, model_
     all_files = np.array(all_dataset.orig_files)
     all_labels = np.array(all_dataset.fps) if hasattr(all_dataset, 'fps') else np.zeros(len(all_files))
     
+    # Extract patient_ids if available (for per-patient kfold splitting)
+    patient_ids = np.array(all_dataset.patient_ids) if hasattr(all_dataset, 'patient_ids') else None
+    
     # Generate splits
-    splits = generate_splits(config, all_files, all_labels, experiment_dir)
+    splits = generate_splits(config, all_files, all_labels, experiment_dir, patient_ids=patient_ids)
     
     # Track validation files for assertion
     used_val_files = set()

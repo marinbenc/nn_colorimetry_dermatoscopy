@@ -1,4 +1,5 @@
 data/
+inference_data/
 render_outputoutput/
 ssynth-release-main/
 mel_model.pth
@@ -9,6 +10,8 @@ scin_processed/
 mra-midas_processed/
 mskcc_processed/
 fp17k_processed/
+isic2020_processed/
+milk10k_processed/
 experiments/
 DermoCC-GAN/
 
