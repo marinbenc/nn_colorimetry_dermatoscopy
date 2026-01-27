@@ -11,6 +11,7 @@ mra-midas_processed/
 mskcc_processed/
 fp17k_processed/
 isic2020_processed/
+isic2020_test_processed/
 milk10k_processed/
 experiments/
 DermoCC-GAN/

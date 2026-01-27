@@ -41,6 +41,24 @@ class InferenceDatasetMixin:
         self.ensure_processed_images(self.orig_files, self.processed_dir)
         print(f"[InferenceDataset] {len(self.orig_files)} processed files found for milk10k out of {len(df)} total entries.")
 
+    def isic2020_test_init(self, files):
+        metadata_path = 'inference_data/isic2020_test/challenge-2020-test_metadata_2026-01-14.csv'
+        images_dir = 'inference_data/isic2020_test/test-resized'
+        df = pd.read_csv(metadata_path)
+        # Build image paths from isic_id column
+        df['image_path'] = df['isic_id'].apply(lambda x: os.path.join(images_dir, f"{x}.jpg"))
+        df = df[df['image_path'].apply(os.path.exists)]
+        if files is not None:
+            df = df[df['image_path'].isin(files)]
+        self.orig_files = df['image_path'].tolist()
+        # Test metadata may not have patient_id; fall back to None for each entry
+        if 'patient_id' in df.columns:
+            self.patient_ids = df['patient_id'].tolist()
+        else:
+            self.patient_ids = [None] * len(self.orig_files)
+        self.ensure_processed_images(self.orig_files, self.processed_dir)
+        print(f"[InferenceDataset] {len(self.orig_files)} processed files found for isic2020_test out of {len(df)} total entries.")
+
 
 class InferenceFPDataset(FPDataset, InferenceDatasetMixin):
     def __getitem__(self, idx):
