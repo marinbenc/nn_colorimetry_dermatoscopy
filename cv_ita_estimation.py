@@ -16,73 +16,12 @@ import math
 from skimage import io, color
 from matplotlib import pyplot as plt
 import numpy as np
+from tqdm import tqdm
 
 ## --- CALCULATION METHODS --- ##
 
 
-# FROM S-SYNTH code -- "GT" ITA calculation because it uses the mask
-# although this still isn't perfectly correlated with melanosome fraction
-def get_ita_value(img_path, mask_path):
-    '''
-    calculate ita and color from image/mask pair
-    
-    Parameters: 
-        - img_path: path for an image
-        - mask_path: path for the corresponding ground truth mask
-        
-    Returns: 
-        - ITA: estimated ITA score for the skin
-        - color: estimated color of the skin based the ITA score
-    '''
-
-    def calculate_mean_cannel_value(channel_array, mask):
-        c_mean_temp = np.median(channel_array[mask == 0], axis=0)
-        c_std = np.std(channel_array[mask == 0], axis=0)
-        c_mean = np.median(
-            channel_array[(channel_array >= c_mean_temp - c_std) & (channel_array <= c_mean_temp + c_std)], axis=0)
-        return c_mean
-
-    def calculate_ITA(L, b):
-        ITA = np.arctan((L - 50) / b) * (180 / np.pi)
-        return ITA
-
-    image = cv2.imread(img_path, cv2.IMREAD_COLOR)
-    mask = cv2.imread(mask_path, cv2.IMREAD_COLOR)[:, :, 1]
-    mask = (mask > 0).astype(int)
-    lab = cv2.cvtColor(image, cv2.COLOR_BGR2LAB)
-    L_channel = np.multiply(lab[:, :, 0], (mask == 0))
-    b_channel = np.multiply(lab[:, :, 2], (mask == 0))
-    L = calculate_mean_cannel_value(L_channel, mask)
-    b = calculate_mean_cannel_value(b_channel, mask)
-    ITA = calculate_ITA(L, b)
-
-    if ITA <= 10:
-        color = "dark"
-    elif 10 < ITA <= 19:
-        color = "tan1"
-    elif 19 < ITA <= 28:
-        color = "tan2"
-    elif 28 < ITA <= 34.5:
-        color = "int1"
-    elif 34.5 < ITA <= 41:
-        color = "int2"
-    elif 41 < ITA <= 48:
-        color = "lt1"
-    elif 48 < ITA <= 55:
-        color = "lt2"
-    elif ITA >= 55:
-        color = "very_lt"
-    return ITA, color
-
-def calculate_ita_ssynth(file_paths):
-  itas = np.zeros(len(file_paths))
-  mask_paths = [f.replace('image.png', 'mask.png') for f in file_paths]
-  with concurrent.futures.ProcessPoolExecutor() as executor:
-    results = list(executor.map(get_ita_value, file_paths, mask_paths))
-    for i, (ita, _) in enumerate(results):
-        itas[i] = ita
-
-  return itas
+# (Removed SSYNTH mask-based ITA calculation — not used for processed inference datasets)
 
 # From Bencevic et al. 2024
 def _process_image_kmeans(file_path):
@@ -107,7 +46,7 @@ def calculate_ita_kmeans(file_paths):
   skin_types = np.zeros(len(file_paths))
 
   with concurrent.futures.ProcessPoolExecutor() as executor:
-      results = list(executor.map(_process_image_kmeans, file_paths))
+      results = list(tqdm(executor.map(_process_image_kmeans, file_paths), total=len(file_paths), desc='kmeans'))
       for i, (dominant_color, ita_angle, fp_type) in enumerate(results):
           colors[i] = dominant_color
           itas[i] = ita_angle
@@ -232,33 +171,46 @@ def get_sample_ita_kin(path,size=256):
 def calculate_ita_bevan(file_paths):
   itas = np.zeros(len(file_paths))
   with concurrent.futures.ProcessPoolExecutor() as executor:
-    results = list(executor.map(get_sample_ita_kin, file_paths))
-    for i, (_, ita2) in enumerate(results):
-        itas[i] = ita2
+        results = list(tqdm(executor.map(get_sample_ita_kin, file_paths), total=len(file_paths), desc='bevan'))
+        for i, (_, ita2) in enumerate(results):
+                itas[i] = ita2
 
   return itas
 
 if __name__ == "__main__":
-  # find all image.pngs
-  all_files = glob.glob('data/output_10k/output/**/image.png', recursive=True)
+    import argparse
+    parser = argparse.ArgumentParser(description='Compute ITA scores for processed dataset images')
+    parser.add_argument('dataset_name', help='Dataset short name (e.g. isic2020, mskcc, ssynth)')
+    args = parser.parse_args()
 
-  # find a list of mel values
-  mel_values = []
-  for f in all_files:
-      mel = f.split('/')[5]
-      mel = float(mel.split('_')[1])
-      mel_values.append(mel)
+    dataset_name = args.dataset_name
+    processed_dir = f"{dataset_name}_processed"
+    if not os.path.exists(processed_dir):
+        raise FileNotFoundError(f"Processed directory not found: {processed_dir}")
 
-  itas_ssynth = calculate_ita_ssynth(all_files)
-  itas_kmeans = calculate_ita_kmeans(all_files)
-  itas_bevan = calculate_ita_bevan(all_files)
+    # Find images in the processed directory (support png/jpg/jpeg)
+    patterns = ['**/*.png', '**/*.jpg', '**/*.jpeg']
+    all_files = []
+    for p in patterns:
+        all_files.extend(glob.glob(os.path.join(processed_dir, p), recursive=True))
+    all_files = sorted(all_files)
 
-  df = pd.DataFrame({
-      'file': all_files,
-      'mel': mel_values,
-      'ita_ssynth': itas_ssynth,
-      'ita_kmeans': itas_kmeans,
-      'ita_bevan': itas_bevan,
-  })
+    if not all_files:
+        print(f"No processed images found in {processed_dir}")
 
-  df.to_csv('ita_values.csv', index=False)
+    print(f"Found {len(all_files)} processed images in {processed_dir}")
+
+    # Compute image-based ITA estimates
+    itas_kmeans = calculate_ita_kmeans(all_files)
+    itas_bevan = calculate_ita_bevan(all_files)
+
+    df = pd.DataFrame({
+            'file': all_files,
+            'ita_kmeans': itas_kmeans,
+            'ita_bevan': itas_bevan,
+    })
+
+    os.makedirs('inference_results', exist_ok=True)
+    out_path = os.path.join('inference_results', f'infer={dataset_name}_model=image_based.csv')
+    df.to_csv(out_path, index=False)
+    print(f"Saved ITA results to {out_path}")

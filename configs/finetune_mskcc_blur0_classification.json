@@ -1,5 +1,5 @@
 {
-  "experiment_name": "finetune_mskcc_classification",
+  "experiment_name": "finetune_mskcc_blur0_classification",
   "dataset_name": "mskcc",
   "model": "efficientnet_b4_classification",
   "mode": "classification",

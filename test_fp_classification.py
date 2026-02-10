@@ -18,48 +18,9 @@ def test_fp_classification(model, test_dataset, device='cuda', batch_size=32, tq
     """
     # Use shared run_test_loop from utils to avoid duplicate code
     df = run_test_loop(model, test_dataset, device=device, batch_size=batch_size, predict_fn=None, tqdm_cls=tqdm_cls)
+    df_save = df.copy()
+    df_save['fp'] = df_save['fp'] + 1
+    df_save['pred'] = df_save['pred'] + 1
+    df_save.to_csv('fp_classification_test_results.csv', index=False)
     return df
 
-
-if __name__ == '__main__':
-    import sys
-    if len(sys.argv) < 2:
-        print('Usage: python test_fp_classification.py <config_path> [--test_dataset_name NAME]')
-        exit(1)
-    config_path = sys.argv[1]
-    # Optional override argument for testing on a different dataset name (full dataset)
-    test_dataset_name = None
-    if len(sys.argv) > 2:
-        # allow '--test_dataset_name' value
-        if sys.argv[2].startswith('--test_dataset_name') and len(sys.argv) > 3:
-            test_dataset_name = sys.argv[3]
-
-    with open(config_path, 'r') as f:
-        config = json.load(f)
-
-    experiment_dir = f"experiments/{config['experiment_name']}"
-    device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-    batch_size = config.get('batch_size', 32)
-    model_name = config.get('model', 'efficientnet_b4_coral')
-    num_classes = 6
-
-    # Use shared evaluation helper to avoid duplicating fold handling & aggregation
-    def model_builder(n):
-        return get_efficientnet_b4_classification(num_classes=n)
-
-    def dataset_builder(name, files, blur_amount):
-        return FPDataset(name, files=files, blur_amount=blur_amount)
-
-    # For classification, default predict_fn (argmax) is fine, so pass None
-    evaluate_experiment(
-        config=config,
-        experiment_dir=experiment_dir,
-        model_builder=model_builder,
-        dataset_builder=dataset_builder,
-        predict_fn=None,
-        num_classes=num_classes,
-        batch_size=batch_size,
-        device=device,
-        test_dataset_name=test_dataset_name,
-        tqdm_cls=tqdm,
-    )
